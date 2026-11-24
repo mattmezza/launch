@@ -161,6 +161,13 @@ static void load_palette(Model *m, const Settings *s)
 
 char *data_contents(const char *name)
 {
+#ifdef LAUNCH_STATIC_RELEASE
+    extern const char launch_config_data[], launch_emoji_data[];
+    if (strcmp(name, "config.ini") == 0)
+        return g_strdup(launch_config_data);
+    if (strcmp(name, "emoji.tsv") == 0)
+        return g_strdup(launch_emoji_data);
+#endif
     char *contents = NULL;
     g_autofree char *exe = g_file_read_link("/proc/self/exe", NULL);
     if (exe) {

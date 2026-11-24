@@ -1,0 +1,18 @@
+Relinking Launch
+
+Use Alpine Linux 3.23 on the architecture named in this archive and
+install build-base. Use the GCC version listed in gcc-version for
+compatibility with the Alpine archives built with link-time optimization.
+
+Replace the desired archives in libraries/ with your own builds.
+The matching library sources and their license notices are in sources/.
+Alpine libraries also include the recipe and patches used to build them.
+The Launch and bundled data notices are in notices/.
+
+From the root of this archive, run
+
+    cc -static -flto=auto -Wl,--wrap=g_getenv -o launch objects/*.o \
+        -Wl,--start-group libraries/*.a -Wl,--end-group
+
+The GitHub release also includes Launch's full source tree and its build
+scripts as the source archive for the release tag.

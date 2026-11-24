@@ -6,6 +6,18 @@ Launch is a Linux/X11 launcher written in C11 with [CUI](https://github.com/matt
 
 ## Install
 
+Run this command on Linux x86-64 or AArch64 to install or upgrade to the latest GitHub release.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mattmezza/launch/main/install.sh | sh
+```
+
+The installer verifies the SHA-256 checksum and puts `launch` and `launch-dmenu` in `~/.local/bin`. Set `LAUNCH_INSTALL_DIR` to choose another directory, or append `-s -- v0.1.0` to `sh` to choose a specific release. Upgrades preserve your configuration and usage data.
+
+The executable bundles its libraries, emoji data, and bang catalog. Launch still needs an X11 display, fontconfig configuration, and fonts. File activation uses `xdg-open` from `xdg-utils`.
+
+### Build from source
+
 You'll need a C11 compiler, Make, and pkg-config. On Debian or Ubuntu, the build dependencies are:
 
 ```sh
@@ -17,7 +29,7 @@ make
 ./build/launch
 ```
 
-CUI and the lookup data are bundled. Launch uses Geist, Geist Mono, and Noto Color Emoji when available through Fontconfig. File activation uses `xdg-open` from `xdg-utils`.
+CUI and the lookup data are bundled. Launch uses Geist, Geist Mono, and Noto Color Emoji when available through Fontconfig.
 
 Run `sudo make clean install` to install under `/usr/local`, or `make install PREFIX="$HOME/.local"` for a user install. Bind `launch` to your usual launcher shortcut. In sxhkd, use the release binding so the same shortcut also dismisses the overlay:
 
@@ -51,7 +63,7 @@ printf '%s\n' Internal External Both | launch-dmenu -i -l 3 -p 'Display'
 
 ## Configure
 
-Copy [config.ini](config.ini) to `${XDG_CONFIG_HOME:-$HOME/.config}/launch/config.ini` and uncomment any values to override. The reference file lists all defaults and is also installed under `share/launch`.
+Copy [config.ini](config.ini) to `${XDG_CONFIG_HOME:-$HOME/.config}/launch/config.ini` and uncomment any values to override. The reference file lists all defaults. The source install also copies it to `share/launch`.
 
 - **Window and startup.** Pick `startup=frequent`, `clock` (local time and month), or `minimal`. `placement=center` opens a floating panel and `top` or `bottom` opens a bar. Set the width, monitor, offsets, `corner-radius`, or `border-width` in pixels. `border-glow`, `glow-search-only`, and `glow-speed` control the animated accent.
 - **Theme and keys.** Set fonts, palette colors, and series colors in `[theme]` or via Xresources such as `launch.accent` and `launch.chartCpu`. INI values override Xresources, and CLI flags take priority. `[keys]` adds shortcuts. `[dmenu]` configures the compatibility picker separately.
@@ -109,3 +121,13 @@ Run it directly with `launch workflow "Reset displays"`. Any extra arguments are
 Launch is released under the [MIT License](LICENSE). This is a personal project and pull requests are closed. Run `make check` with Python 3, Xvfb, xauth, xdotool, xclip, and xev. Use `TEST_WM=mwm make check` to run under [mwm](https://github.com/mattmezza/mwm).
 
 Third-party notices cover [CUI and Clay](vendor/cui/), [Heroicons](assets/HEROICONS-LICENSE), [Unicode Emoji and CLDR](assets/UNICODE-LICENSE), and [the Helium bang catalog](config.ini). The banner pairs Runware artwork with a real X11 capture.
+
+### Cut a release
+
+Use an authenticated GitHub CLI from the commit you want to release. Push that commit to GitHub and make sure the workflow is on `main`.
+
+```sh
+make release name=v0.1.0
+```
+
+This creates a draft release and starts the **Release Launch** workflow. GitHub Actions builds the tagged version for both architectures and runs the X11 checks. Once both builds pass, it attaches the executables, checksums, and relink archives, then publishes. A failed build leaves the release in draft. Retry from Actions or run the same command again from the same commit.

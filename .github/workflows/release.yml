@@ -1,0 +1,113 @@
+name: Release Launch
+run-name: Release Launch ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag of the draft GitHub Release (vX.Y.Z)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag }}
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      commit: ${{ steps.draft.outputs.commit }}
+    steps:
+      - name: Resolve the draft's source commit
+        id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          commit=$(gh release view "$TAG" --json isDraft,targetCommitish \
+            --jq 'select(.isDraft) | .targetCommitish')
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - {arch: x86_64, runner: ubuntu-24.04}
+          - {arch: aarch64, runner: ubuntu-24.04-arm}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - name: Build static Linux executable
+        run: |
+          mkdir -p dist
+          docker run --rm -v "$PWD:/src:ro" -v "$PWD/dist:/out" \
+            alpine:3.23 sh /src/tools/build-release.sh "$TAG" /out
+      - name: Test the release binary on X11
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth xdotool xclip x11-utils fontconfig fonts-dejavu-core
+          test_root=$(mktemp -d)
+          mkdir "$test_root/build" "$test_root/tests"
+          install -m 755 "dist/launch-linux-$ARCH" "$test_root/build/launch"
+          ln -s launch "$test_root/build/dmenu"
+          cp tests/x11.py "$test_root/tests"
+          xvfb-run -a -s '-screen 0 1280x800x24' python3 "$test_root/tests/x11.py"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: launch-linux-${{ matrix.arch }}
+          path: dist/launch-linux-${{ matrix.arch }}*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: launch-linux-*
+          path: dist
+          merge-multiple: true
+      - name: Attach and publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: |
+          draft_commit=$(gh release view "$TAG" --json isDraft,targetCommitish \
+            --jq 'select(.isDraft) | .targetCommitish')
+          test "$draft_commit" = "$COMMIT"
+          refs=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$TAG" --jq '.[].ref')
+          if grep -Fxq "refs/tags/$TAG" <<< "$refs"; then
+            echo "::error::The release tag already exists."
+            exit 1
+          fi
+          assets=()
+          for arch in x86_64 aarch64; do
+            asset="launch-linux-$arch"
+            (cd dist && sha256sum -c "$asset.sha256")
+            test -s "dist/$asset-relink.tar.gz"
+            assets+=("dist/$asset" "dist/$asset.sha256" "dist/$asset-relink.tar.gz")
+          done
+          gh release upload "$TAG" --clobber "${assets[@]}"
+          gh release edit "$TAG" --draft=false

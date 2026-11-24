@@ -2,10 +2,41 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "launch.h"
+
+#ifdef LAUNCH_STATIC_RELEASE
+const char *__real_g_getenv(const char *name);
+
+const char *__wrap_g_getenv(const char *name)
+{
+    const char *value = __real_g_getenv(name);
+    // GIO uses an executable wrapper to pass the child's PID to the desktop app.
+    if (!value && strcmp(name, "GIO_LAUNCH_DESKTOP") == 0)
+        return "/proc/self/exe";
+    return value;
+}
+
+static int launch_desktop(int argc, char **argv)
+{
+    if (argc < 2)
+        return 127;
+
+    char pid[32];
+    snprintf(pid, sizeof pid, "%ld", (long)getpid());
+    if (setenv("GIO_LAUNCHED_DESKTOP_FILE_PID", pid, 1) == 0)
+        execv(argv[1], argv + 1);
+    perror(argv[1]);
+    return 127;
+}
+#endif
 
 int main(int argc, char **argv)
 {
+#ifdef LAUNCH_STATIC_RELEASE
+    if (strcmp(argv[0], "/proc/self/exe") == 0)
+        return launch_desktop(argc, argv);
+#endif
     setlocale(LC_ALL, "");
     if (argc == 4 && strcmp(argv[1], "--serve-selection") == 0)
         return clipboard_serve(atoi(argv[2]), argv[3]);
@@ -26,7 +57,7 @@ int main(int argc, char **argv)
     }
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
-            puts(compatible ? "dmenu-launch-0.1.0" : "launch 0.1.0");
+            puts(compatible ? "dmenu-launch-" LAUNCH_VERSION : "launch " LAUNCH_VERSION);
             return 0;
         }
         if (strcmp(argv[i], "--help") == 0) {
