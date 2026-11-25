@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "launch.h"
+#include "mwm.h"
 #include "web.h"
 
 #ifndef LAUNCH_DATA_DIR
@@ -31,8 +32,8 @@ char *search_key(const char *text)
     return g_string_free(key, FALSE);
 }
 
-static Item *add_item(GPtrArray *list, const char *label, const char *value,
-                      const char *note, const char *aliases, Action action)
+Item *item_add(GPtrArray *list, const char *label, const char *value,
+               const char *note, const char *aliases, Action action)
 {
     Item *item = g_new0(Item, 1);
     item->label = valid_text(label);
@@ -94,7 +95,7 @@ static void load_commands(Model *m, GHashTable *seen)
             if (access(file, X_OK) != 0 || !g_file_test(file, G_FILE_TEST_IS_REGULAR))
                 continue;
             g_hash_table_add(seen, g_strdup(name));
-            Item *item = add_item(m->palette, name, NULL, "Command", NULL, ITEM_EXECUTABLE);
+            Item *item = item_add(m->palette, name, NULL, "Command", NULL, ITEM_EXECUTABLE);
             item->argv = g_new0(char *, 2);
             item->argv[0] = g_steal_pointer(&file);
         }
@@ -105,7 +106,7 @@ static void load_commands(Model *m, GHashTable *seen)
 static Item *add_workflow(Model *m, const char *name, const char *value,
                           const char *keywords, Action action)
 {
-    Item *item = add_item(m->palette, name, value, "Workflow", keywords, action);
+    Item *item = item_add(m->palette, name, value, "Workflow", keywords, action);
     g_autofree char *key = search_key(name);
     item->usage_id = g_strconcat("workflow:", key, NULL);
     return item;
@@ -118,6 +119,8 @@ static void load_palette(Model *m, const Settings *s)
     add_workflow(m, "System", "system", "monitor stats performance cpu gpu ram memory disk network", ITEM_SYSTEM);
     add_workflow(m, "Calendar", "calendar", "date today day week month year agenda", ITEM_CALENDAR);
     add_workflow(m, "Files", "files", "find file folder document path", ITEM_FILES);
+    if (m->mwm_client)
+        add_workflow(m, "mwm", "mwm", "window manager wm focus move workspace tag monitor layout", ITEM_MWM);
     g_auto(GStrv) groups = g_key_file_get_groups(s->file, NULL);
     for (size_t i = 0; groups[i]; i++) {
         if (!g_str_has_prefix(groups[i], "workflow ") || !groups[i][9])
@@ -126,7 +129,7 @@ static void load_palette(Model *m, const Settings *s)
         if (!argv)
             continue;
         g_autofree char *keywords = g_key_file_get_string(s->file, groups[i], "keywords", NULL);
-        Item *item = add_item(m->palette, groups[i] + 9, NULL, "Workflow", keywords, ITEM_COMMAND);
+        Item *item = item_add(m->palette, groups[i] + 9, NULL, "Workflow", keywords, ITEM_COMMAND);
         item->usage_id = g_strconcat("script:", groups[i] + 9, NULL);
         item->argv = argv;
     }
@@ -145,7 +148,7 @@ static void load_palette(Model *m, const Settings *s)
             g_hash_table_add(seen, g_path_get_basename(executable));
         g_autofree char *aliases = g_strconcat(executable ? executable : "", " ",
                                                tags ? tags : "", NULL);
-        Item *item = add_item(m->palette, g_app_info_get_display_name(app), NULL,
+        Item *item = item_add(m->palette, g_app_info_get_display_name(app), NULL,
                               "App", aliases, ITEM_APP);
         item->app = g_object_ref(app);
         const char *id = g_app_info_get_id(app);
@@ -202,14 +205,31 @@ static bool load_emoji(Model *m)
         g_auto(GStrv) fields = g_strsplit(lines[i], "\t", 3);
         if (fields[0] && *fields[0] && fields[1] && *fields[1]) {
             g_autofree char *aliases = g_strconcat(fields[0], " ", fields[2] ? fields[2] : "", NULL);
-            add_item(m->emoji, fields[1], fields[0], NULL, aliases, ITEM_OUTPUT);
+            item_add(m->emoji, fields[1], fields[0], NULL, aliases, ITEM_OUTPUT);
         }
     }
     return true;
 }
 
-bool model_load(Model *m, const Settings *s)
+static bool load_mwm(Model *m)
 {
+    if (!m->mwm_items)
+        m->mwm_items = g_ptr_array_new_with_free_func(item_free);
+    g_ptr_array_set_size(m->mwm_items, 0);
+    return mwm_load(m->mwm_items, m->mwm_client, &m->error);
+}
+
+bool model_load(Model *m, const Settings *s, Display *display)
+{
+    if ((m->mode == MWM || m->mode == PALETTE) && mwm_running(display))
+        m->mwm_client = g_find_program_in_path("mwmc");
+    if (m->mode == MWM) {
+        if (!m->mwm_client) {
+            m->error = g_strdup("The mwm workflow requires a running mwm and mwmc on PATH");
+            return false;
+        }
+        return load_mwm(m);
+    }
     if (m->mode == EMOJI) {
         if (!load_emoji(m))
             return false;
@@ -221,7 +241,7 @@ bool model_load(Model *m, const Settings *s)
         while ((length = getline(&line, &capacity, stdin)) >= 0) {
             if (length && line[length - 1] == '\n')
                 line[length - 1] = '\0';
-            add_item(m->items, line, line, NULL, NULL, ITEM_OUTPUT);
+            item_add(m->items, line, line, NULL, NULL, ITEM_OUTPUT);
         }
         free(line);
         if (ferror(stdin)) {
@@ -241,11 +261,14 @@ void model_clear(Model *m)
     g_clear_pointer(&m->emoji, g_ptr_array_unref);
     g_clear_pointer(&m->file_items, g_ptr_array_unref);
     g_clear_pointer(&m->web_items, g_ptr_array_unref);
+    g_clear_pointer(&m->mwm_items, g_ptr_array_unref);
+    g_clear_pointer(&m->mwm_input, g_ptr_array_unref);
     g_clear_pointer(&m->bangs, g_hash_table_unref);
     g_array_unref(m->matches);
     g_free(m->output);
     g_free(m->error);
     g_free(m->file_query);
+    g_free(m->mwm_client);
 }
 
 static bool word_boundary(const char *start, const char *pos)
@@ -395,6 +418,28 @@ static void list_matches(Model *m)
     }
 }
 
+static bool filter_mwm_command(Model *m)
+{
+    if (!g_str_has_prefix(m->query, "mwmc "))
+        return false;
+    if (!m->mwm_input)
+        m->mwm_input = g_ptr_array_new_with_free_func(item_free);
+    g_ptr_array_set_size(m->mwm_input, 0);
+    m->items = m->mwm_input;
+    g_autoptr(GError) error = NULL;
+    g_auto(GStrv) argv = NULL;
+    if (!g_shell_parse_argv(m->query, NULL, &argv, &error)) {
+        m->error = g_strdup(error->message);
+    } else if (!argv[1]) {
+        m->error = g_strdup("Enter an mwmc command");
+    } else {
+        mwm_add_command(m->items, m->mwm_client, m->query, "Command",
+                        (const char *const *)(argv + 1));
+        list_matches(m);
+    }
+    return true;
+}
+
 static void file_filter(Model *m, const Settings *s, const char *text)
 {
     g_autofree char *trimmed = text ? g_strdup(text) : NULL;
@@ -447,7 +492,7 @@ bool model_file_update(Model *m)
                 g_autofree char *short_parent = g_str_has_prefix(parent, home) &&
                     (!parent[home_length] || parent[home_length] == '/')
                     ? g_strconcat("~", parent + home_length, NULL) : NULL;
-                Item *item = add_item(m->file_items, name, match->path,
+                Item *item = item_add(m->file_items, name, match->path,
                                       match->directory ? "Folder" : "File", NULL,
                                       match->directory ? ITEM_FOLDER : ITEM_FILE);
                 item->detail = g_filename_display_name(short_parent ? short_parent : parent);
@@ -475,7 +520,7 @@ static bool filter_web(Model *m, const Settings *s, const char *query)
             m->web_items = g_ptr_array_new_with_free_func(item_free);
         g_ptr_array_set_size(m->web_items, 0);
         g_autofree char *note = g_strconcat("@", target.profile, NULL);
-        Item *item = add_item(m->web_items, target.label, target.url, note, NULL, ITEM_WEB);
+        Item *item = item_add(m->web_items, target.label, target.url, note, NULL, ITEM_WEB);
         item->detail = g_steal_pointer(&target.detail);
         m->items = m->web_items;
         list_matches(m);
@@ -492,7 +537,7 @@ void model_filter(Model *m, const Settings *s)
     m->dirty = false;
     m->selected = m->first = 0;
     g_clear_pointer(&m->error, g_free);
-    m->items = m->mode == EMOJI ? m->emoji : m->palette;
+    m->items = m->mode == EMOJI ? m->emoji : m->mode == MWM ? m->mwm_items : m->palette;
     g_array_set_size(m->matches, 0);
     if (!mode_has_search(m->mode) || model_showcase(m, s)) {
         file_filter(m, s, NULL);
@@ -507,6 +552,8 @@ void model_filter(Model *m, const Settings *s)
         calculate(m->query, m->result, sizeof m->result);
         return;
     }
+    if (m->mode == MWM && filter_mwm_command(m))
+        return;
 
     if (m->mode == PALETTE) {
         g_autofree char *input = g_strdup(m->query);
@@ -604,6 +651,9 @@ static bool enter_workflow(Model *m, const Settings *s, Mode mode)
 {
     if (mode == EMOJI && !load_emoji(m))
         return false;
+    g_clear_pointer(&m->error, g_free);
+    if (mode == MWM && !load_mwm(m))
+        return false;
     memcpy(m->saved_query, m->query, sizeof m->query);
     m->saved_cursor = m->cursor;
     m->saved_anchor = m->anchor;
@@ -611,7 +661,6 @@ static bool enter_workflow(Model *m, const Settings *s, Mode mode)
     m->saved_first = m->first;
     m->came_from_palette = true;
     m->mode = mode;
-    m->items = mode == EMOJI ? m->emoji : m->palette;
     m->query[0] = '\0';
     model_seek(m, 0, false);
     m->dirty = true;
@@ -687,11 +736,13 @@ bool model_accept(Model *m, const Settings *s, Display *display, bool raw, bool 
             return true;
         m->chosen = item;
     } else if (item->action == ITEM_EMOJI || item->action == ITEM_CALCULATOR ||
-               item->action == ITEM_SYSTEM || item->action == ITEM_CALENDAR || item->action == ITEM_FILES) {
+               item->action == ITEM_SYSTEM || item->action == ITEM_CALENDAR ||
+               item->action == ITEM_FILES || item->action == ITEM_MWM) {
         Mode mode = item->action == ITEM_EMOJI ? EMOJI :
                     item->action == ITEM_CALCULATOR ? CALCULATOR :
                     item->action == ITEM_SYSTEM ? SYSTEM :
-                    item->action == ITEM_CALENDAR ? CALENDAR : FILES;
+                    item->action == ITEM_CALENDAR ? CALENDAR :
+                    item->action == ITEM_FILES ? FILES : MWM;
         if (enter_workflow(m, s, mode))
             usage_record(item);
         return true;
@@ -706,6 +757,14 @@ bool model_dispatch(const Model *m, const Settings *s)
 {
     if (!m->chosen)
         return true;
+    if (m->chosen->action == ITEM_MWM_COMMAND) {
+        g_autofree char *output = NULL, *message = NULL;
+        if (!mwm_run(m->chosen->argv, &output, &message)) {
+            fprintf(stderr, "launch: %s\n", message);
+            return false;
+        }
+        return fputs(output, stdout) != EOF && fflush(stdout) != EOF;
+    }
     g_autoptr(GError) error = NULL;
     GSpawnFlags flags = G_SPAWN_SEARCH_PATH;
     if (m->chosen->action == ITEM_WEB)

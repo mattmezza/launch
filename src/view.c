@@ -87,6 +87,8 @@ bool view_init(View *v, const Settings *s, Display *display, Colormap colormap)
 {
     for (int i = 0; i < COLORS; i++) {
         const char *name = s->color[i];
+        if (!name)
+            continue;
         char full[8];
         if (*name == '#' && strlen(name) == 4) {
             g_snprintf(full, sizeof full, "#%c%c%c%c%c%c",
@@ -100,6 +102,15 @@ bool view_init(View *v, const Settings *s, Display *display, Colormap colormap)
         }
         v->colors[i] = (cui_color){color.red >> 8, color.green >> 8, color.blue >> 8, 255};
     }
+    cui_color bg = v->colors[BG], fg = v->colors[FG];
+    if (!s->color[MUTED])
+        v->colors[MUTED] = cui_color_mix_oklab(bg, fg, 0.72f);
+    if (!s->color[SELECT_BG])
+        v->colors[SELECT_BG] = cui_color_mix_oklab(bg, v->colors[ACCENT], 0.28f);
+    if (!s->color[SELECT_FG])
+        v->colors[SELECT_FG] = fg;
+    if (!s->color[BORDER])
+        v->colors[BORDER] = cui_color_mix_oklab(bg, fg, 0.19f);
     v->caret_visible = true;
     v->normal = font_description(s->font, 15);
     v->mono = font_description(s->mono, 13);
@@ -369,6 +380,7 @@ static const char *hint(Mode mode)
     case CALCULATOR: return "Enter an expression";
     case PICK: return "Filter items";
     case FILES: return "Search files and folders";
+    case MWM: return "Search window manager actions";
     default: return "Search apps and workflows";
     }
 }
@@ -379,6 +391,7 @@ static const char *scope(Mode mode)
     case EMOJI: return "EMOJI";
     case CALCULATOR: return "CALC";
     case FILES: return "FILES";
+    case MWM: return "MWM";
     default: return NULL;
     }
 }
@@ -673,7 +686,7 @@ static void footer(View *v, const Model *m, const Settings *s)
     const char *right = selected && selected->action == ITEM_WEB ? "Open tab" :
         m->mode == FILES || file ? "Open" : m->mode == PALETTE ? (selected && selected->note &&
         strcmp(selected->note, "Workflow") == 0 ? "Open workflow" : "Open")
-        : m->mode == PICK || s->print ? "Select" : "Copy";
+        : m->mode == MWM ? "Run" : m->mode == PICK || s->print ? "Select" : "Copy";
     cui_begin_box(ui, 0, (cui_box){.width = -1, .height = (float)v->footer, .row = true,
                                     .align_y = CUI_ALIGN_CENTER, .gap = 8, .clip = true,
                                     .custom_padding = true,

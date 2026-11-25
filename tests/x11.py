@@ -93,10 +93,13 @@ def wait_geometry(win, predicate):
     raise AssertionError(geometry)
 
 
-def set_window_class(win, name, instance=None, pid=None):
+@contextlib.contextmanager
+def x_connection():
     lib = C.CDLL("libX11.so.6")
     lib.XOpenDisplay.argtypes = [C.c_char_p]
     lib.XOpenDisplay.restype = C.c_void_p
+    lib.XDefaultRootWindow.argtypes = [C.c_void_p]
+    lib.XDefaultRootWindow.restype = C.c_ulong
     lib.XInternAtom.argtypes = [C.c_void_p, C.c_char_p, C.c_int]
     lib.XInternAtom.restype = C.c_ulong
     lib.XChangeProperty.argtypes = [C.c_void_p, C.c_ulong, C.c_ulong, C.c_ulong,
@@ -105,6 +108,13 @@ def set_window_class(win, name, instance=None, pid=None):
     display = lib.XOpenDisplay(None)
     assert display
     try:
+        yield lib, display
+    finally:
+        lib.XCloseDisplay(display)
+
+
+def set_window_class(win, name, instance=None, pid=None):
+    with x_connection() as (lib, display):
         value = f"{instance or name}\0{name}\0".encode()
         lib.XChangeProperty(display, win, 67, 31, 8, 0, value, len(value))
         if pid is not None:
@@ -112,8 +122,86 @@ def set_window_class(win, name, instance=None, pid=None):
             role = lib.XInternAtom(display, b"WM_WINDOW_ROLE", 0)
             lib.XChangeProperty(display, win, owner, 6, 32, 0, C.byref(C.c_ulong(pid)), 1)
             lib.XChangeProperty(display, win, role, 31, 8, 0, b"browser", 7)
-    finally:
-        lib.XCloseDisplay(display)
+
+
+def check_mwm(tmp, bin_dir, manager_window):
+    with application(LAUNCH, "mwm") as app:
+        out, err = app.communicate(timeout=4)
+        assert app.returncode == 1 and not out and "requires a running mwm" in err, (out, err)
+
+    with x_connection() as (lib, display):
+        check = lib.XInternAtom(display, b"_NET_SUPPORTING_WM_CHECK", 0)
+        name = lib.XInternAtom(display, b"_NET_WM_NAME", 0)
+        utf8 = lib.XInternAtom(display, b"UTF8_STRING", 0)
+        root = lib.XDefaultRootWindow(display)
+        manager = C.c_ulong(manager_window)
+        lib.XChangeProperty(display, root, check, 33, 32, 0, C.byref(manager), 1)
+        lib.XChangeProperty(display, manager_window, name, utf8, 8, 0, b"mwm", 3)
+
+    calls = tmp / "mwm-arguments"
+    client = bin_dir / "mwmc"
+    client.write_text(
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        '  "query tags") printf "tag 0 Home mon=0 sel=1 occ=1 layout=[]=\\n'
+        'tag 3 Project Lab mon=1 sel=1 occ=0 layout=[]=\\n";;\n'
+        '  "query monitors") printf "mon 0 1280x800+0+0 seltag=0 sel=1\\n'
+        'mon 1 1024x768+1280+0 seltag=3 sel=0\\n";;\n'
+        '  reload) printf "error: cannot reload\\n"; exit 1;;\n'
+        f'  *) printf "<%s>\\n" "$@" > "{calls}";;\n'
+        'esac\n'
+    )
+    client.chmod(0o755)
+
+    with application(LAUNCH) as app:
+        window("Launch", app)
+        type_text("mwm")
+        keys("Return", "Escape", "Return")
+        type_text("move window to tag Project Lab")
+        keys("Return")
+        check_exit(app, "")
+    wait_file(calls, "<move>\n<win>\n<4>\n")
+
+    for query, expected in (
+        ("move current tag to monitor 1", "<move>\n<tag>\n<1>\n"),
+        ("move window to next monitor", "<move>\n<win>\n<mon>\n<next>\n"),
+        ("mwmc focus tag 'Project Lab'", "<focus>\n<tag>\n<Project Lab>\n"),
+    ):
+        with application(LAUNCH, "mwm") as app:
+            window("Launch", app)
+            type_text(query)
+            keys("Return")
+            check_exit(app, "")
+        wait_file(calls, expected)
+
+    with application(LAUNCH, "mwm") as app:
+        window("Launch", app)
+        type_text("reload mwm")
+        keys("Return")
+        out, err = app.communicate(timeout=4)
+        assert (app.returncode, out, err) == (1, "", "launch: error: cannot reload\n")
+
+
+def check_theme(ini):
+    def resources(values):
+        subprocess.run(["xprop", "-root", "-f", "RESOURCE_MANAGER", "8s",
+                        "-set", "RESOURCE_MANAGER", values], check=True, timeout=3)
+
+    def frame(win, height, shaped):
+        info = subprocess.check_output(["xwininfo", "-id", str(win), "-shape"], text=True, timeout=3)
+        assert f"Height: {height}\n" in info, info
+        assert ("Window shape extents:" in info) == shaped, info
+        keys("Escape")
+
+    desktop = "mwm.statusbg: #120000\nmwm.statusfg: #feebea\nmwm.selbg: #e568d0\n"
+    minimal = "[launch]\nstartup=minimal\nfont=Sans 12\n"
+    ini.write_text(minimal)
+    resources(desktop)
+    menu([LAUNCH], None, lambda win: frame(win, 56, True), "", 1)
+    resources(desktop + "launch.cornerRadius: 0\nlaunch.borderWidth: 3\n")
+    menu([LAUNCH], None, lambda win: frame(win, 60, False), "", 1)
+    ini.write_text(minimal + "corner-radius=6\nborder-width=2\n")
+    menu([LAUNCH], None, lambda win: frame(win, 58, True), "", 1)
 
 
 def accept_file(app, key):
@@ -323,7 +411,13 @@ def main(tmp):
     menu([LAUNCH, "pick"], "", edit_field, "Aone XtwoY threeW\n")
     menu([LAUNCH, "pick"], "", lambda _: (type_text("replace this"), keys("ctrl+a"),
          type_text("replacement"), keys("shift+Return")), "replacement\n")
-    menu([LAUNCH], None, lambda _: keys("super+space"), "", 1)
+    with application(LAUNCH) as app:
+        window("Launch", app)
+        xdotool("keydown", "Super_L", "keydown", "space").check_returncode()
+        time.sleep(0.1)
+        assert app.poll() is None
+        xdotool("keyup", "Super_L", "keyup", "space").check_returncode()
+        check_exit(app, "", 1)
     with (config / "config.ini").open("a") as file:
         file.write("\n[launch]\ntoggle=false\n")
     with application(LAUNCH) as app:
@@ -334,7 +428,7 @@ def main(tmp):
         keys("Escape")
         check_exit(app, "", 1)
     with (config / "config.ini").open("a") as file:
-        file.write("toggle=true\n[keys]\ntoggle=Super+F7\n")
+        file.write("toggle=true\n[keys]\ntoggle=Mod4+F7\n")
     with application(LAUNCH) as app:
         window("Launch", app)
         keys("super+F7")
@@ -446,6 +540,9 @@ def main(tmp):
     with application("xev", "-name", "Launch embed target") as parent:
         embed = window("Launch embed target", parent)
         menu([DMENU, "-w", str(embed)], "embedded\n", lambda _: keys("Return"), "embedded\n")
+        check_theme(ini)
+        if not os.environ.get("TEST_WM"):
+            check_mwm(tmp, bin_dir, embed)
 
     print("X11 integration checks passed")
 

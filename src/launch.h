@@ -9,7 +9,7 @@
 #include "files.h"
 
 enum { QUERY_CAPACITY = 4096 };
-typedef enum { PALETTE, PICK, EMOJI, CALCULATOR, SYSTEM, CALENDAR, FILES } Mode;
+typedef enum { PALETTE, PICK, EMOJI, CALCULATOR, SYSTEM, CALENDAR, FILES, MWM } Mode;
 typedef enum { FREQUENT, CLOCK, MINIMAL } Startup;
 typedef enum { CENTER, TOP, BOTTOM } Placement;
 typedef enum { KEY_UP, KEY_DOWN, KEY_ACCEPT, KEY_CANCEL, KEY_TOGGLE, KEY_ACTIONS } KeyAction;
@@ -19,7 +19,7 @@ typedef struct {
 } Shortcut;
 typedef enum { ITEM_OUTPUT, ITEM_APP, ITEM_EXECUTABLE, ITEM_COMMAND,
                ITEM_EMOJI, ITEM_CALCULATOR, ITEM_SYSTEM, ITEM_CALENDAR, ITEM_FILES,
-               ITEM_FILE, ITEM_FOLDER, ITEM_WEB } Action;
+               ITEM_FILE, ITEM_FOLDER, ITEM_WEB, ITEM_MWM, ITEM_MWM_COMMAND } Action;
 typedef enum { BG, FG, MUTED, SELECT_BG, SELECT_FG, OUT_BG, OUT_FG, BORDER, ACCENT,
                CHART_CPU, CHART_GPU, CHART_RAM, CHART_READ, CHART_WRITE, CHART_RX, CHART_TX, COLORS } Color;
 
@@ -59,7 +59,7 @@ typedef struct {
 
 typedef struct {
     Mode mode;
-    GPtrArray *palette, *items, *emoji, *file_items, *web_items;
+    GPtrArray *palette, *items, *emoji, *file_items, *web_items, *mwm_items, *mwm_input;
     FileSearch *files;
     GHashTable *bangs;
     GArray *matches;
@@ -67,7 +67,7 @@ typedef struct {
     size_t cursor, anchor, saved_cursor, saved_anchor, saved_selection, saved_first;
     char query[QUERY_CAPACITY], saved_query[QUERY_CAPACITY];
     char result[64];
-    char *output, *error, *file_query;
+    char *output, *error, *file_query, *mwm_client;
     int file_request;
     Item *chosen;
     bool came_from_palette, done, accepted, dirty, file_pending;
@@ -82,8 +82,10 @@ char **workflow_command(const Settings *, const char *group);
 int workflow_run(const char *name, int argc, char **argv);
 
 void model_init(Model *, Mode);
-bool model_load(Model *, const Settings *);
+bool model_load(Model *, const Settings *, Display *);
 void model_clear(Model *);
+Item *item_add(GPtrArray *, const char *label, const char *value, const char *note,
+               const char *aliases, Action);
 void model_filter(Model *, const Settings *);
 Item *model_item(const Model *, size_t rank);
 bool model_selection(const Model *, size_t *from, size_t *to);

@@ -859,7 +859,7 @@ int x11_run(Settings *s, Mode mode, int argc, char **argv)
     x.parent = s->parent ? s->parent : x.root;
     if (mode == PICK && s->fast && !isatty(STDIN_FILENO) && !s->parent && !grab(&x, x.root))
         goto finish;
-    if (!model_load(&model, s)) {
+    if (!model_load(&model, s, x.display)) {
         fprintf(stderr, "launch: %s\n", model.error);
         goto finish;
     }

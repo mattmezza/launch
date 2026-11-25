@@ -12,7 +12,7 @@ Run this command on Linux x86-64 or AArch64 to install or upgrade to the latest 
 curl -fsSL https://raw.githubusercontent.com/mattmezza/launch/main/install.sh | sh
 ```
 
-The installer verifies the SHA-256 checksum and puts `launch` and `launch-dmenu` in `~/.local/bin`. Set `LAUNCH_INSTALL_DIR` to choose another directory, or append `-s -- v0.1.0` to `sh` to choose a specific release. Upgrades preserve your configuration and usage data.
+The installer verifies the SHA-256 checksum and puts `launch` and `launch-dmenu` in `~/.local/bin`. Set `LAUNCH_INSTALL_DIR` to choose another directory, or append `-s -- v0.2.0` to `sh` to choose a specific release. Upgrades preserve your configuration and usage data.
 
 The executable bundles its libraries, emoji data, and bang catalog. Launch still needs an X11 display, fontconfig configuration, and fonts. File activation uses `xdg-open` from `xdg-utils`.
 
@@ -49,8 +49,17 @@ mod4 + @space
 | `Alpine wildflowers !w@work` | Open a Wikipedia search as a tab in the running work browser. Omit `@work` to use the default profile. HTTP(S) URLs also work, with an optional suffix such as ` @work`. |
 | `calendar` | **←/→** switches Year, Month, Week, 3-Days, and Day. **↑/↓** moves between periods and **T** jumps to today. |
 | `system` | View live CPU, GPU, RAM, disk, and network charts. **←/→** or **1–5** changes tabs, and **↑/↓** samples faster or slower. GPU readings depend on the Linux driver. |
+| `mwm` | Switch focus, move windows and tags, or change layouts and desktop controls through `mwmc`. |
 
-**Ctrl+←/→** moves by word, **Home/End** jumps to either end, and **Ctrl+A** selects all. Run `launch emoji`, `launch calc`, `launch calendar`, `launch system`, or `launch files` to open a workflow directly. Use `--print` with `emoji` or `calc` to send the selected value to stdout.
+**Ctrl+←/→** moves by word, **Home/End** jumps to either end, and **Ctrl+A** selects all. Run `launch emoji`, `launch calc`, `launch calendar`, `launch system`, `launch files`, or `launch mwm` to open a workflow directly. Use `--print` with `emoji` or `calc` to send the selected value to stdout.
+
+### Window management with mwm
+
+With mwm running and `mwmc` on your PATH, search for **mwm** in Launch and press **Enter**. Try `focus next window`, `move window to tag`, `focus monitor`, or `columns layout`. Launch reads the current tags and monitors each time you open the workflow. Monitor actions appear when you have multiple monitors. Window actions apply to the focused window.
+
+You can also enter an explicit command from within the workflow, such as `mwmc win move -40 0` or `mwmc focus tag "Project Work"`. Use this form for unassigned tags or other commands from `mwmc help`. Quoted arguments are passed directly to `mwmc`.
+
+![Launch shows the mwm workflow filtered to window moves, with named tags and a highlight that follows the Xresources palette](media/mwm-workflow.png)
 
 ### Script pickers and dmenu
 
@@ -66,7 +75,7 @@ printf '%s\n' Internal External Both | launch-dmenu -i -l 3 -p 'Display'
 Copy [config.ini](config.ini) to `${XDG_CONFIG_HOME:-$HOME/.config}/launch/config.ini` and uncomment any values to override. The reference file lists all defaults. The source install also copies it to `share/launch`.
 
 - **Window and startup.** Pick `startup=frequent`, `clock` (local time and month), or `minimal`. `placement=center` opens a floating panel and `top` or `bottom` opens a bar. Set the width, monitor, offsets, `corner-radius`, or `border-width` in pixels. `border-glow`, `glow-search-only`, and `glow-speed` control the animated accent.
-- **Theme and keys.** Set fonts, palette colors, and series colors in `[theme]` or via Xresources such as `launch.accent` and `launch.chartCpu`. INI values override Xresources, and CLI flags take priority. `[keys]` adds shortcuts. `[dmenu]` configures the compatibility picker separately.
+- **Theme and keys.** Launch follows the `mwm` Xresources palette when it finds its background, foreground, and selection colors. It uses a thin outline and the `mwm.segradius` corner radius (6 px by default). Override the palette, fonts, or frame with `launch.*` Xresources such as `launch.accent`, `launch.chartCpu`, `launch.cornerRadius`, and `launch.borderWidth`. INI values override Xresources, and CLI flags take priority. `[keys]` adds shortcuts. `[dmenu]` configures the compatibility picker separately.
 - **Files and charts.** Set search roots, exclusions, cache age, or `fallback=false` in `[files]`. Defaults are your XDG Documents, Downloads, and Desktop directories. `[system] interval-ms=1000` sets the initial chart refresh. Usage counts and cached file paths stay in the XDG state and cache directories respectively.
 - **Browser profiles and bangs.** Set `[browser] default-profile=personal` and add `[browser personal]` and `[browser work]` with a `command` and `window-class`. The reference config shows two Helium instances with different `--user-data-dir` values and an optional `focus-command` for mwm. Keep the intended browser window open for the tab handoff. The full [Helium bang catalog](https://helium.computer/bangs) ships in `[bangs]`. Uncomment a trigger to change it, add one with `{searchTerms}` in the URL, or leave its value empty to disable it.
 
@@ -127,7 +136,7 @@ Third-party notices cover [CUI and Clay](vendor/cui/), [Heroicons](assets/HEROIC
 Use an authenticated GitHub CLI from the commit you want to release. Push that commit to GitHub and make sure the workflow is on `main`.
 
 ```sh
-make release name=v0.1.0
+make release name=v0.2.0
 ```
 
 This creates a draft release and starts the **Release Launch** workflow. GitHub Actions builds the tagged version for both architectures and runs the X11 checks. Once both builds pass, it attaches the executables, checksums, and relink archives, then publishes. A failed build leaves the release in draft. Retry from Actions or run the same command again from the same commit.

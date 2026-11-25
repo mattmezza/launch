@@ -52,6 +52,53 @@ char *expand_home(const char *path)
                                         : g_strdup(path);
 }
 
+static bool number(const char *str, int minimum, int maximum, int *dest)
+{
+    char *end;
+    errno = 0;
+    long n = strtol(str, &end, 10);
+    if (errno || end == str || *end || n < minimum || n > maximum)
+        return false;
+    *dest = (int)n;
+    return true;
+}
+
+static const char *resource(XrmDatabase database, const char *prefix, const char *key)
+{
+    char name[64], *type;
+    XrmValue value;
+    g_snprintf(name, sizeof name, "%s.%s", prefix, key);
+    return XrmGetResource(database, name, name, &type, &value) && strcmp(type, "String") == 0
+        ? value.addr : NULL;
+}
+
+static void desktop_theme(Settings *s, XrmDatabase database)
+{
+    const char *accent = resource(database, "mwm", "selbg");
+    const char *background = resource(database, "mwm", "statusbg");
+    const char *foreground = resource(database, "mwm", "statusfg");
+    if (!background)
+        background = resource(database, "mwm", "normbg");
+    if (!foreground)
+        foreground = resource(database, "mwm", "normfg");
+    if (!accent || !background || !foreground)
+        return;
+
+    update(&s->color[BG], background);
+    update(&s->color[FG], foreground);
+    update(&s->color[ACCENT], accent);
+    /* The view derives these from the effective colors after user overrides. */
+    const Color derived[] = {MUTED, SELECT_BG, SELECT_FG, BORDER};
+    for (size_t i = 0; i < G_N_ELEMENTS(derived); i++)
+        g_clear_pointer(&s->color[derived[i]], g_free);
+    s->corner_radius = 6;
+    const char *radius = resource(database, "mwm", "segradius");
+    if (radius)
+        number(radius, 0, 32, &s->corner_radius);
+    s->border_width = 1;
+    s->border_glow = false;
+}
+
 void settings_resources(Settings *s, Display *display)
 {
     XrmInitialize();
@@ -63,6 +110,9 @@ void settings_resources(Settings *s, Display *display)
     if (!database)
         return;
 
+    if (!s->compatible)
+        desktop_theme(s, database);
+
     const char *const namespaces[] = {"dmenu", "launch"};
     for (size_t space = 0; space < G_N_ELEMENTS(namespaces); space++) {
         for (int i = 0; i < COLORS + 2; i++) {
@@ -70,27 +120,20 @@ void settings_resources(Settings *s, Display *display)
                 continue;
             const char *key = i == COLORS ? "font" : i == COLORS + 1 ? "mono" : keys[i];
             char **target = i == COLORS ? &s->font : i == COLORS + 1 ? &s->mono : &s->color[i];
-            char name[64];
-            g_snprintf(name, sizeof name, "%s.%s", namespaces[space], key);
-            char *type;
-            XrmValue value;
-            if (XrmGetResource(database, name, name, &type, &value) &&
-                strcmp(type, "String") == 0 && value.addr)
-                update(target, value.addr);
+            const char *value = resource(database, namespaces[space], key);
+            if (value)
+                update(target, value);
         }
     }
+    if (!s->compatible) {
+        const char *radius = resource(database, "launch", "cornerRadius");
+        const char *width = resource(database, "launch", "borderWidth");
+        if (radius)
+            number(radius, 0, 256, &s->corner_radius);
+        if (width)
+            number(width, 0, 64, &s->border_width);
+    }
     XrmDestroyDatabase(database);
-}
-
-static bool number(const char *str, int minimum, int maximum, int *dest)
-{
-    char *end;
-    errno = 0;
-    long n = strtol(str, &end, 10);
-    if (errno || end == str || *end || n < minimum || n > maximum)
-        return false;
-    *dest = (int)n;
-    return true;
 }
 
 static bool config_bool(const Settings *s, const char *group, const char *key, bool *value)
@@ -248,7 +291,7 @@ static bool config_keys(Settings *s)
                 modifiers |= Mod1Mask;
             else if (g_ascii_strcasecmp(part, "shift") == 0)
                 modifiers |= ShiftMask;
-            else if (g_ascii_strcasecmp(part, "super") == 0)
+            else if (g_ascii_strcasecmp(part, "super") == 0 || g_ascii_strcasecmp(part, "mod4") == 0)
                 modifiers |= Mod4Mask;
             else
                 break;
@@ -334,7 +377,7 @@ void usage(FILE *stream, bool compatible)
                         "             [-fn font] [-nb color] [-nf color] [-sb color] [-sf color]\n"
                         "             [-ob color] [-of color] [-w window-id]\n");
     else
-        fprintf(stream, "usage: launch [pick | emoji | calc | system | calendar | files] [options]\n"
+        fprintf(stream, "usage: launch [pick | emoji | calc | system | calendar | files | mwm] [options]\n"
                         "       launch workflow name [arguments...]\n"
                         "Options: -p prompt, -l rows, -m monitor, -b (bottom), -i, -fn font\n"
                         "         --print (emoji or calc), --literal / --require-match (pick)\n"
@@ -358,6 +401,8 @@ bool settings_args(Settings *s, int argc, char **argv, Mode *mode)
             *mode = CALENDAR;
         else if (strcmp(argv[1], "files") == 0)
             *mode = FILES;
+        else if (strcmp(argv[1], "mwm") == 0)
+            *mode = MWM;
         if (*mode != PALETTE)
             start = 2;
     }
