@@ -276,6 +276,29 @@ w=
     assert all(name not in data for name in (b".private", b"node_modules", b"linked-me.txt"))
 
     ini.write_text(config.replace("[files]", "[files]\nfallback=false"))
+    outside = tmp / "Outside search roots"
+    outside.mkdir()
+    document = outside / "draft !site.txt "
+    document.touch()
+    shortcut = tmp / "Folder shortcut"
+    shortcut.symlink_to(outside)
+    for query, argv, target, expected in (
+        (str(outside), (), opened, f"{outside}\n"),
+        (str(shortcut), ("files",), opened, f"{shortcut}\n"),
+        (str(document), (), revealed, f"--reveal\n{document}\n"),
+    ):
+        target.unlink(missing_ok=True)
+        subprocess.run(["xclip", "-selection", "clipboard"], input=query, text=True,
+                       check=True, timeout=3)
+        with application(LAUNCH, *argv) as app:
+            window("Launch", app)
+            keys("ctrl+v")
+            time.sleep(0.1)
+            assert app.poll() is None and not target.exists()
+            keys("Return")
+            check_exit(app, "")
+        wait_file(target, expected)
+
     with application(LAUNCH) as app:
         window("Launch", app)
         type_text("zqx-report")

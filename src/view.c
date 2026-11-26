@@ -230,13 +230,14 @@ void view_fit(View *v, Model *m, const Settings *s, const Calendar *calendar,
                                      (cui_text_style){0}).height);
     v->row = s->row_height ? s->row_height : MAX(s->compatible ? 30 : 42, natural + 12);
     const Item *item = model_item(m, 0);
-    if (m->mode == FILES || m->file_query || (item && item->action == ITEM_WEB))
+    bool single_result = item && (item->action == ITEM_WEB || item->direct_path);
+    if (m->mode == FILES || m->file_query || single_result)
         v->row = MAX(v->row, (int)ceilf(natural + MAX(13, v->font_size - 3) * 1.3f + 7));
     v->header = MIN(max_height, v->bar ? v->row : MAX(natural + 24, 54));
     v->footer = v->bar ? 0 : MIN(38, MAX(0, (max_height - v->header) / 3));
     m->columns = m->mode == EMOJI ? (size_t)CLAMP((v->width - 2 * v->inset) / 58, 1, 12) : 1;
     int rows = s->rows ? s->rows : (m->mode == EMOJI ? 5 : 7);
-    if (item && item->action == ITEM_WEB) {
+    if (single_result) {
         rows = 1;
     } else if (m->mode == FILES || m->file_query) {
         size_t visible = m->file_pending ? MAX(m->page, m->matches->len) : m->matches->len;
@@ -684,6 +685,7 @@ static void footer(View *v, const Model *m, const Settings *s)
         ? selected->label : m->came_from_palette ? "Esc Back" : "Esc Close";
     bool file = selected && (selected->action == ITEM_FILE || selected->action == ITEM_FOLDER);
     const char *right = selected && selected->action == ITEM_WEB ? "Open tab" :
+        selected && selected->direct_path && selected->action == ITEM_FILE && s->files_reveal ? "Reveal" :
         m->mode == FILES || file ? "Open" : m->mode == PALETTE ? (selected && selected->note &&
         strcmp(selected->note, "Workflow") == 0 ? "Open workflow" : "Open")
         : m->mode == MWM ? "Run" : m->mode == PICK || s->print ? "Select" : "Copy";

@@ -469,6 +469,40 @@ static void file_filter(Model *m, const Settings *s, const char *text)
     list_matches(m);
 }
 
+static Item *add_file_item(GPtrArray *items, const char *path, bool directory)
+{
+    g_autofree char *name = g_filename_display_basename(path);
+    g_autofree char *parent = g_path_get_dirname(path);
+    const char *home = g_get_home_dir();
+    size_t home_length = strlen(home);
+    g_autofree char *short_parent = g_str_has_prefix(parent, home) &&
+        (!parent[home_length] || parent[home_length] == '/')
+        ? g_strconcat("~", parent + home_length, NULL) : NULL;
+    Item *item = item_add(items, name, path, directory ? "Folder" : "File", NULL,
+                          directory ? ITEM_FOLDER : ITEM_FILE);
+    item->detail = g_filename_display_name(short_parent ? short_parent : parent);
+    return item;
+}
+
+static bool filter_path(Model *m, const Settings *s, const char *text)
+{
+    if (!g_path_is_absolute(text) && strcmp(text, "~") != 0 && !g_str_has_prefix(text, "~/"))
+        return false;
+    g_autofree char *path = expand_home(text);
+    struct stat info;
+    if (stat(path, &info) < 0 || (!S_ISDIR(info.st_mode) && !S_ISREG(info.st_mode)))
+        return false;
+
+    file_filter(m, s, NULL);
+    if (!m->file_items)
+        m->file_items = g_ptr_array_new_with_free_func(item_free);
+    g_ptr_array_set_size(m->file_items, 0);
+    add_file_item(m->file_items, path, S_ISDIR(info.st_mode))->direct_path = true;
+    m->items = m->file_items;
+    list_matches(m);
+    return true;
+}
+
 bool model_file_update(Model *m)
 {
     if (!m->files)
@@ -485,17 +519,7 @@ bool model_file_update(Model *m)
                 const FileMatch *match = g_ptr_array_index(result->matches, i);
                 if (current && strcmp(current, match->path) == 0)
                     rank = i;
-                g_autofree char *name = g_filename_display_basename(match->path);
-                g_autofree char *parent = g_path_get_dirname(match->path);
-                const char *home = g_get_home_dir();
-                size_t home_length = strlen(home);
-                g_autofree char *short_parent = g_str_has_prefix(parent, home) &&
-                    (!parent[home_length] || parent[home_length] == '/')
-                    ? g_strconcat("~", parent + home_length, NULL) : NULL;
-                Item *item = item_add(m->file_items, name, match->path,
-                                      match->directory ? "Folder" : "File", NULL,
-                                      match->directory ? ITEM_FOLDER : ITEM_FILE);
-                item->detail = g_filename_display_name(short_parent ? short_parent : parent);
+                add_file_item(m->file_items, match->path, match->directory);
             }
             m->file_pending = result->pending;
             list_matches(m);
@@ -543,6 +567,8 @@ void model_filter(Model *m, const Settings *s)
         file_filter(m, s, NULL);
         return;
     }
+    if ((m->mode == PALETTE || m->mode == FILES) && filter_path(m, s, m->query))
+        return;
     if (m->mode == FILES) {
         file_filter(m, s, m->query);
         return;
@@ -557,10 +583,14 @@ void model_filter(Model *m, const Settings *s)
 
     if (m->mode == PALETTE) {
         g_autofree char *input = g_strdup(m->query);
-        const char *text = g_strstrip(input);
+        char *text = g_strchug(input);
         if (g_ascii_strncasecmp(text, "files", 5) == 0 && g_ascii_isspace(text[5])) {
-            file_filter(m, s, text + 6);
-            return;
+            const char *path = g_strchug(text + 6);
+            if (*path) {
+                if (!filter_path(m, s, path))
+                    file_filter(m, s, path);
+                return;
+            }
         }
         if (filter_web(m, s, text))
             return;
@@ -747,10 +777,12 @@ bool model_accept(Model *m, const Settings *s, Display *display, bool raw, bool 
         g_clear_pointer(&m->error, g_free);
         if (keep)
             m->output = g_strdup(item->value);
-        else if (lstat(item->value, &info) < 0 ||
+        else if ((item->direct_path ? stat(item->value, &info) : lstat(item->value, &info)) < 0 ||
                  (item->action == ITEM_FOLDER ? !S_ISDIR(info.st_mode) : !S_ISREG(info.st_mode))) {
             m->error = g_strdup("This path is no longer available");
             return true;
+        } else if (item->direct_path && item->action == ITEM_FILE && s->files_reveal) {
+            return model_reveal(m, s);
         } else {
             item->argv = g_new0(char *, 3);
             item->argv[0] = g_strdup("xdg-open");

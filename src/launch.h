@@ -48,7 +48,7 @@ typedef struct {
     char **argv;
     int launches;
     gint64 last_used;
-    bool emitted;
+    bool emitted, direct_path;
 } Item;
 
 typedef struct {

@@ -46,6 +46,7 @@ mod4 + @space
 | `emoji` | Search emoji by name or keyword, move around the grid with arrows, and copy with **Enter**. |
 | `calc` | Evaluate expressions such as `pi * 12.5^2` and copy the result with **Enter**. Supports `+ - * / % ^`, parentheses, and scientific notation. |
 | `files alpine` | Search filenames and parent paths. Files also appear automatically when the palette finds no other results. **Enter** opens and **Ctrl+Enter** copies the path. Set `[files] reveal-command=dirlane --reveal` to reveal the selected result with **Alt+Enter**. |
+| `~/Downloads` or `/path/to/file.pdf` | Type or paste an existing path, then press **Enter**. Folders open in your default file manager. Files are revealed with `reveal-command` when configured and otherwise open in their default app. Exact paths also work outside the file search roots. |
 | `Alpine wildflowers !w@work` | Open a Wikipedia search as a tab in the running work browser. Omit `@work` to use the default profile. HTTP(S) URLs also work, with an optional suffix such as ` @work`. |
 | `calendar` | **←/→** switches Year, Month, Week, 3-Days, and Day. **↑/↓** moves between periods and **T** jumps to today. |
 | `system` | View live CPU, GPU, RAM, disk, and network charts. **←/→** or **1–5** changes tabs, and **↑/↓** samples faster or slower. GPU readings depend on the Linux driver. |
