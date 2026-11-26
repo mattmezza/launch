@@ -40,6 +40,8 @@ int main(int argc, char **argv)
     setlocale(LC_ALL, "");
     if (argc == 4 && strcmp(argv[1], "--serve-selection") == 0)
         return clipboard_serve(atoi(argv[2]), argv[3]);
+    if (argc == 2 && strcmp(argv[1], "--refresh-rates") == 0)
+        return rates_refresh() ? 0 : 1;
     const char *name = strrchr(argv[0], '/');
     name = name ? name + 1 : argv[0];
     bool compatible = strcmp(name, "dmenu") == 0 || strcmp(name, "launch-dmenu") == 0;

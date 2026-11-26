@@ -7,6 +7,7 @@
 #include "cui.h"
 #include "system.h"
 #include "files.h"
+#include "rates.h"
 
 enum { QUERY_CAPACITY = 4096 };
 typedef enum { PALETTE, PICK, EMOJI, CALCULATOR, SYSTEM, CALENDAR, FILES, MWM } Mode;
@@ -19,7 +20,7 @@ typedef struct {
 } Shortcut;
 typedef enum { ITEM_OUTPUT, ITEM_APP, ITEM_EXECUTABLE, ITEM_COMMAND,
                ITEM_EMOJI, ITEM_CALCULATOR, ITEM_SYSTEM, ITEM_CALENDAR, ITEM_FILES,
-               ITEM_FILE, ITEM_FOLDER, ITEM_WEB, ITEM_MWM, ITEM_MWM_COMMAND } Action;
+               ITEM_FILE, ITEM_FOLDER, ITEM_WEB, ITEM_MWM, ITEM_MWM_COMMAND, ITEM_CONVERSION } Action;
 typedef enum { BG, FG, MUTED, SELECT_BG, SELECT_FG, OUT_BG, OUT_FG, BORDER, ACCENT,
                CHART_CPU, CHART_GPU, CHART_RAM, CHART_READ, CHART_WRITE, CHART_RX, CHART_TX, COLORS } Color;
 
@@ -60,7 +61,9 @@ typedef struct {
 typedef struct {
     Mode mode;
     GPtrArray *palette, *items, *emoji, *file_items, *web_items, *mwm_items, *mwm_input;
+    GPtrArray *conversion_items;
     FileSearch *files;
+    Rates *rates;
     GHashTable *bangs;
     GArray *matches;
     size_t selected, first, page, columns;
@@ -70,7 +73,7 @@ typedef struct {
     char *output, *error, *file_query, *mwm_client;
     int file_request;
     Item *chosen;
-    bool came_from_palette, done, accepted, dirty, file_pending;
+    bool came_from_palette, done, accepted, dirty, file_pending, converting;
 } Model;
 
 void settings_init(Settings *, bool);
@@ -100,6 +103,7 @@ bool model_dispatch(const Model *, const Settings *);
 bool model_showcase(const Model *, const Settings *);
 bool mode_has_search(Mode);
 bool model_file_update(Model *);
+bool model_rates_update(Model *, const Settings *);
 void usage_load(GPtrArray *);
 void usage_record(const Item *);
 char *search_key(const char *text);
@@ -108,6 +112,7 @@ int search_score(const char *key, const char *aliases, const char *query, char *
 char *data_contents(const char *name);
 char *expand_home(const char *path);
 bool calculate(const char *, char *, size_t);
+bool convert(Model *);
 
 int clipboard_serve(int, const char *);
 bool clipboard_copy(const char *);

@@ -231,7 +231,8 @@ void view_fit(View *v, Model *m, const Settings *s, const Calendar *calendar,
     v->row = s->row_height ? s->row_height : MAX(s->compatible ? 30 : 42, natural + 12);
     const Item *item = model_item(m, 0);
     bool single_result = item && (item->action == ITEM_WEB || item->direct_path);
-    if (m->mode == FILES || m->file_query || single_result)
+    if (m->mode == FILES || m->file_query || single_result ||
+        (m->converting && item && item->detail))
         v->row = MAX(v->row, (int)ceilf(natural + MAX(13, v->font_size - 3) * 1.3f + 7));
     v->header = MIN(max_height, v->bar ? v->row : MAX(natural + 24, 54));
     v->footer = v->bar ? 0 : MIN(38, MAX(0, (max_height - v->header) / 3));
@@ -239,6 +240,8 @@ void view_fit(View *v, Model *m, const Settings *s, const Calendar *calendar,
     int rows = s->rows ? s->rows : (m->mode == EMOJI ? 5 : 7);
     if (single_result) {
         rows = 1;
+    } else if (m->converting) {
+        rows = MIN(rows, m->matches->len ? (int)m->matches->len : 2);
     } else if (m->mode == FILES || m->file_query) {
         size_t visible = m->file_pending ? MAX(m->page, m->matches->len) : m->matches->len;
         rows = (int)MIN((size_t)rows, MAX(visible, 2u));
@@ -269,7 +272,7 @@ void view_fit(View *v, Model *m, const Settings *s, const Calendar *calendar,
         v->visible = horizontal_page(v, m, s);
         m->page = v->visible;
         v->height = v->header;
-    } else if (m->mode == CALCULATOR) {
+    } else if (m->mode == CALCULATOR && !m->converting) {
         v->visible = 0;
         m->page = 0;
         v->height = MIN(max_height, v->header + MAX(v->row, 104) + v->footer + (v->bar ? 0 : 9));
@@ -378,7 +381,7 @@ static const char *hint(Mode mode)
 {
     switch (mode) {
     case EMOJI: return "Search emoji";
-    case CALCULATOR: return "Enter an expression";
+    case CALCULATOR: return "Enter an expression or conversion";
     case PICK: return "Filter items";
     case FILES: return "Search files and folders";
     case MWM: return "Search window manager actions";
@@ -527,7 +530,7 @@ static void item_row(View *v, const Model *m, const Item *item, size_t rank, int
     }
     int label_width = MAX(1, width - 2 * inset - (note_width ? note_width + 27 + 2 * gap : 0));
     cui_begin_box(ui, 0, (cui_box){.width = (float)label_width, .gap = 1, .clip = true});
-    if (v->bar || item->emitted || item->action == ITEM_WEB)
+    if (v->bar || item->emitted || item->action == ITEM_WEB || item->action == ITEM_CONVERSION)
         text(v, item->label, v->font_size, fg, (cui_text_style){0});
     else
         highlight(v, m, item, fg);
@@ -598,16 +601,18 @@ static void grid(View *v, const Model *m)
 static void results(View *v, const Model *m)
 {
     cui_context *ui = v->ui;
-    float height = m->mode == CALCULATOR ? v->height - v->header - v->footer - (v->bar ? 0 : 9)
-                                         : v->row * (float)(v->visible / m->columns);
+    bool calculator = m->mode == CALCULATOR && !m->converting;
+    float height = calculator ? v->height - v->header - v->footer - (v->bar ? 0 : 9)
+                              : v->row * (float)(v->visible / m->columns);
     if (height <= 0)
         return;
     cui_begin_box(ui, 0, (cui_box){.width = -1, .height = height, .clip = true,
                                    .custom_padding = true,
                                    .padding_edges = {(float)v->inset, (float)v->inset, 0, 0}});
-    if (m->mode == CALCULATOR) {
+    if (calculator) {
         bool valid = *m->result;
-        const char *value = valid ? m->result : (*m->query ? "Incomplete or invalid expression" : "Try (18 + 6) / 4");
+        const char *value = valid ? m->result : (*m->query ? "Incomplete or invalid expression" :
+                                               "Try (18 + 6) / 4 or 5 mi to km");
         cui_begin_box(ui, 0, (cui_box){.width = -1, .height = -1, .radius = 10, .padding = 15,
                      .background = v->colors[SELECT_BG], .gap = 6, .align_y = CUI_ALIGN_CENTER,
                      .clip = true});
@@ -684,7 +689,8 @@ static void footer(View *v, const Model *m, const Settings *s)
     const char *left = m->error && selected ? m->error : m->mode == EMOJI && selected
         ? selected->label : m->came_from_palette ? "Esc Back" : "Esc Close";
     bool file = selected && (selected->action == ITEM_FILE || selected->action == ITEM_FOLDER);
-    const char *right = selected && selected->action == ITEM_WEB ? "Open tab" :
+    const char *right = selected && selected->action == ITEM_CONVERSION ? (s->print ? "Select" : "Copy") :
+        selected && selected->action == ITEM_WEB ? "Open tab" :
         selected && selected->direct_path && selected->action == ITEM_FILE && s->files_reveal ? "Reveal" :
         m->mode == FILES || file ? "Open" : m->mode == PALETTE ? (selected && selected->note &&
         strcmp(selected->note, "Workflow") == 0 ? "Open workflow" : "Open")

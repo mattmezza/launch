@@ -83,6 +83,89 @@ def clipboard():
     return subprocess.check_output(["xclip", "-selection", "clipboard", "-o"], text=True, timeout=3)
 
 
+def check_conversions(tmp, bin_dir):
+    with application(LAUNCH) as app:
+        window("Launch", app)
+        type_text("5 mi to km")
+        keys("Return")
+        check_exit(app, "")
+    assert clipboard() == "8.04672 km"
+
+    for query, answer in (("2.5 GiB to MiB", "2560 MiB"), ("1 MB to Mb", "8 Mb"),
+                          ("1 US gal to L", "3.785411784 L")):
+        menu([LAUNCH, "calc", "--print"], None,
+             lambda _: (type_text(query), keys("Return")), answer + "\n")
+    menu([LAUNCH, "calc", "--print"], None,
+         lambda _: (type_text("1 kg to"), keys("Down", "Return")), "1000 g\n")
+    menu([LAUNCH, "calc", "--print"], None,
+         lambda _: (type_text("5 mi to km"), keys("ctrl+a"), type_text("5 mi to kg"),
+                    keys("Return", "Escape")), "", 1)
+
+    subprocess.run(["xclip", "-selection", "clipboard"], input="72°F to °C", text=True,
+                   check=True, timeout=3)
+    with application(LAUNCH) as app:
+        window("Launch", app)
+        keys("ctrl+v")
+        time.sleep(0.1)
+        keys("Return")
+        check_exit(app, "")
+    assert clipboard() == "22.22 °C"
+
+    feed = tmp / "ecb.xml"
+    xml = ("<?xml version='1.0'?><gesmes:Envelope>\n"
+           "<Cube><Cube time='2026-03-17'><Cube currency='USD' rate='1.2'/>"
+           "<Cube currency='CHF' rate='0.9'/><Cube currency='JPY' rate='155'/></Cube></Cube>\n"
+           "</gesmes:Envelope>\n")
+    feed.write_text(xml)
+    args = tmp / "rates-arguments"
+    ready = tmp / "rates-ready"
+    curl = bin_dir / "curl"
+    curl.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' \"$@\" > '{args}'\n"
+        "for n in $(seq 1 100); do\n"
+        f"    if test -f '{ready}'; then exec cat '{feed}'; fi\n"
+        "    sleep 0.03\n"
+        "done\nexit 1\n"
+    )
+    curl.chmod(0o755)
+    request = ("-q\n--fail\n--silent\n--proto\n=https\n--connect-timeout\n3\n--max-time\n8\n"
+               "--max-filesize\n65536\nhttps://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml\n")
+    cache = tmp / "cache" / "launch" / "ecb-rates.xml"
+    with application(LAUNCH) as app:
+        win = window("Launch", app)
+        type_text("100 usd to chf")
+        wait_file(args, request)
+        pending = xdotool("getwindowgeometry", win).stdout
+        keys("Return")
+        assert app.poll() is None
+        ready.touch()
+        wait_file(cache, xml)
+        wait_geometry(win, lambda geometry: geometry != pending)
+        keys("Return")
+        check_exit(app, "")
+    assert clipboard() == "75.00 CHF"
+
+    args.unlink()
+    menu([LAUNCH, "calc", "--print"], None,
+         lambda _: (type_text("2 EUR to JPY"), keys("Return")), "310 JPY\n")
+    assert not args.exists()
+
+    # An expired cache still works while the next request fails in the background.
+    lock = cache.with_suffix(".xml.lock")
+    os.utime(cache, (1, 1))
+    os.utime(lock, (1, 1))
+    curl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{args}'\nexit 1\n")
+    menu([LAUNCH, "calc", "--print"], None,
+         lambda _: (type_text("100 USD to CHF"), keys("Return")), "75.00 CHF\n")
+    wait_file(args, request)
+    assert cache.read_text() == xml
+
+    cache.unlink()
+    menu([LAUNCH, "calc", "--print"], None,
+         lambda _: (type_text("100 USD to CHF"), keys("Return", "Escape")), "", 1)
+
+
 def wait_geometry(win, predicate):
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
@@ -567,6 +650,7 @@ def main(tmp):
         check_exit(app, "", 1)
     menu([LAUNCH, "calendar"], None, lambda _: keys("Down", "t", "Escape"), "", 1)
     files_and_web(tmp, ini, bin_dir)
+    check_conversions(tmp, bin_dir)
 
     with application("xev", "-name", "Launch embed target") as parent:
         embed = window("Launch embed target", parent)

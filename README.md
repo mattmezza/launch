@@ -45,6 +45,7 @@ mod4 + @space
 | Type an app, command, or workflow name | Fuzzy-find it. **↑/↓** selects, **Enter** opens, and **Esc** backs out. An empty query shows your most-used entries. |
 | `emoji` | Search emoji by name or keyword, move around the grid with arrows, and copy with **Enter**. |
 | `calc` | Evaluate expressions such as `pi * 12.5^2` and copy the result with **Enter**. Supports `+ - * / % ^`, parentheses, and scientific notation. |
+| `5 mi to km` or `100 USD to CHF` | Convert a unit or currency in the palette or inside `calc`. See the answer as you type and copy it with **Enter**. |
 | `files alpine` | Search filenames and parent paths. Files also appear automatically when the palette finds no other results. **Enter** opens and **Ctrl+Enter** copies the path. Set `[files] reveal-command=dirlane --reveal` to reveal the selected result with **Alt+Enter**. |
 | `~/Downloads` or `/path/to/file.pdf` | Type or paste an existing path, then press **Enter**. Folders open in your default file manager. Files are revealed with `reveal-command` when configured and otherwise open in their default app. Exact paths also work outside the file search roots. |
 | `Alpine wildflowers !w@work` | Open a Wikipedia search as a tab in the running work browser. Omit `@work` to use the default profile. HTTP(S) URLs also work, with an optional suffix such as ` @work`. |
@@ -53,6 +54,12 @@ mod4 + @space
 | `mwm` | Switch focus, move windows and tags, or change layouts and desktop controls through `mwmc`. |
 
 **Ctrl+←/→** moves by word, **Home/End** jumps to either end, and **Ctrl+A** selects all. Run `launch emoji`, `launch calc`, `launch calendar`, `launch system`, `launch files`, or `launch mwm` to open a workflow directly. Use `--print` with `emoji` or `calc` to send the selected value to stdout.
+
+### Unit and currency conversions
+
+Use `amount unit to unit` for distance, mass, temperature, volume, speed, and data size. Try `72°F to °C`, `2.5 GiB to MiB`, or `5 mi to` to browse compatible targets. Data-size symbols distinguish bytes (`MB`) from bits (`Mb`). Unit conversions work offline.
+
+Use three-letter currency codes such as `USD`, `EUR`, and `CHF`. Launch uses `curl` to fetch [ECB reference rates](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html) in the background. It displays the rate date and can use the last cached rates offline. The fetch sends neither your query nor the amount.
 
 ### Window management with mwm
 

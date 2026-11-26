@@ -718,12 +718,14 @@ static bool loop(Host *x, Model *m, const Settings *s)
     gint64 caret_at = g_get_monotonic_time() + blink, glow_at = x->opened_at + frame;
     gint64 clock_at = 0, date_at = 0;
     struct pollfd connections[] = {{.fd = ConnectionNumber(x->display), .events = POLLIN},
+                                   {.fd = -1, .events = POLLIN},
                                    {.fd = -1, .events = POLLIN}};
     while (!m->done) {
         if (!s->compatible) {
             gint64 now = g_get_monotonic_time();
             gint64 deadline = G_MAXINT64;
             bool refresh = model_file_update(m);
+            refresh |= model_rates_update(m, s);
             if (mode_has_search(m->mode) && now >= caret_at) {
                 x->view.caret_visible = !x->view.caret_visible;
                 caret_at = now + blink;
@@ -771,6 +773,7 @@ static bool loop(Host *x, Model *m, const Settings *s)
             if (!XPending(x->display)) {
                 int timeout = (int)MAX(0, (deadline - g_get_monotonic_time() + 999) / 1000);
                 connections[1].fd = files_fd(m->files);
+                connections[2].fd = rates_fd(m->rates);
                 if (poll(connections, G_N_ELEMENTS(connections), timeout) < 0 && errno != EINTR)
                     return false;
                 continue;

@@ -65,6 +65,7 @@ void model_init(Model *m, Mode mode)
 {
     *m = (Model){.mode = mode, .columns = 1, .anchor = SIZE_MAX, .dirty = true};
     m->palette = g_ptr_array_new_with_free_func(item_free);
+    m->conversion_items = g_ptr_array_new_with_free_func(item_free);
     m->matches = g_array_new(FALSE, FALSE, sizeof(Match));
     m->items = m->palette;
 }
@@ -115,7 +116,7 @@ static Item *add_workflow(Model *m, const char *name, const char *value,
 static void load_palette(Model *m, const Settings *s)
 {
     add_workflow(m, "Emoji", "emoji", "emoticon symbols smileys", ITEM_EMOJI);
-    add_workflow(m, "Calculator", "calc", "math calc arithmetic evaluate", ITEM_CALCULATOR);
+    add_workflow(m, "Calculator", "calc", "math calc arithmetic evaluate convert units currency", ITEM_CALCULATOR);
     add_workflow(m, "System", "system", "monitor stats performance cpu gpu ram memory disk network", ITEM_SYSTEM);
     add_workflow(m, "Calendar", "calendar", "date today day week month year agenda", ITEM_CALENDAR);
     add_workflow(m, "Files", "files", "find file folder document path", ITEM_FILES);
@@ -257,7 +258,9 @@ bool model_load(Model *m, const Settings *s, Display *display)
 void model_clear(Model *m)
 {
     files_close(m->files);
+    rates_close(m->rates);
     g_ptr_array_unref(m->palette);
+    g_ptr_array_unref(m->conversion_items);
     g_clear_pointer(&m->emoji, g_ptr_array_unref);
     g_clear_pointer(&m->file_items, g_ptr_array_unref);
     g_clear_pointer(&m->web_items, g_ptr_array_unref);
@@ -560,6 +563,8 @@ void model_filter(Model *m, const Settings *s)
         return;
     m->dirty = false;
     m->selected = m->first = 0;
+    m->converting = false;
+    m->result[0] = '\0';
     g_clear_pointer(&m->error, g_free);
     m->items = m->mode == EMOJI ? m->emoji : m->mode == MWM ? m->mwm_items : m->palette;
     g_array_set_size(m->matches, 0);
@@ -573,8 +578,17 @@ void model_filter(Model *m, const Settings *s)
         file_filter(m, s, m->query);
         return;
     }
+    if (m->mode == PALETTE || m->mode == CALCULATOR) {
+        g_ptr_array_set_size(m->conversion_items, 0);
+        if (convert(m)) {
+            m->converting = true;
+            m->items = m->conversion_items;
+            file_filter(m, s, NULL);
+            list_matches(m);
+            return;
+        }
+    }
     if (m->mode == CALCULATOR) {
-        m->result[0] = '\0';
         calculate(m->query, m->result, sizeof m->result);
         return;
     }
@@ -622,6 +636,23 @@ Item *model_item(const Model *m, size_t rank)
     if (rank >= m->matches->len)
         return NULL;
     return g_ptr_array_index(m->items, g_array_index(m->matches, Match, rank).index);
+}
+
+bool model_rates_update(Model *m, const Settings *s)
+{
+    if (!rates_receive(m->rates) || !m->converting)
+        return false;
+    Item *selected = model_item(m, m->selected);
+    g_autofree char *unit = selected ? g_strdup(selected->key) : NULL;
+    m->dirty = true;
+    model_filter(m, s);
+    for (size_t rank = 0; unit && rank < m->matches->len; rank++) {
+        if (g_strcmp0(model_item(m, rank)->key, unit) == 0) {
+            model_select(m, rank);
+            break;
+        }
+    }
+    return true;
 }
 
 bool model_selection(const Model *m, size_t *from, size_t *to)
@@ -759,8 +790,9 @@ bool model_accept(Model *m, const Settings *s, Display *display, bool raw, bool 
                 item->emitted = true;
             return true;
         }
-    } else if (m->mode == EMOJI || m->mode == CALCULATOR) {
-        const char *value = m->mode == EMOJI ? (item ? item->value : NULL) : m->result;
+    } else if (m->mode == EMOJI || m->mode == CALCULATOR || m->converting) {
+        const char *value = m->mode == CALCULATOR && !m->converting ? m->result :
+                            item ? item->value : NULL;
         if (!value || !*value)
             return true;
         if (s->print) {

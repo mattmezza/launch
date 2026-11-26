@@ -3,14 +3,14 @@ PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 DATADIR ?= $(PREFIX)/share/launch
 PKG_CONFIG ?= pkg-config
-VERSION ?= 0.3.0
+VERSION ?= 0.4.0
 PACKAGES = x11 xinerama xext cairo-xlib pangocairo fontconfig gio-unix-2.0
 
 CPPFLAGS += -D_GNU_SOURCE -DLAUNCH_DATA_DIR='"$(DATADIR)"' -Ivendor/cui -Iassets \
             $(shell $(PKG_CONFIG) --cflags $(PACKAGES))
 CFLAGS ?= -O2
 WARNINGS = -std=c11 -Wall -Wextra -Wpedantic
-SOURCES = main config model usage calc view dashboard calendar system glow x11 clipboard files web mwm cui
+SOURCES = main config model usage calc convert rates view dashboard calendar system glow x11 clipboard files web mwm cui
 OBJECTS = $(addprefix build/,$(addsuffix .o,$(SOURCES)))
 
 ifeq ($(STATIC),1)
