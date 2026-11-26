@@ -633,6 +633,8 @@ static bool key(Host *x, Model *m, const Settings *s, XKeyEvent *event)
         }
     } else if (state & Mod1Mask) {
         switch (symbol) {
+        case XK_Return: case XK_KP_Enter:
+            return s->compatible ? true : model_reveal(m, s);
         case XK_b: model_seek(m, word(m, s, -1), shift && !s->compatible); return true;
         case XK_f: model_seek(m, word(m, s, 1), shift && !s->compatible); return true;
         case XK_g: symbol = XK_Home; break;

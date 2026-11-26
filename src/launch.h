@@ -34,7 +34,7 @@ typedef struct {
     Startup startup;
     Window parent;
     char *prompt, *font, *mono, *color[COLORS];
-    char **files_roots, **files_exclude;
+    char **files_roots, **files_exclude, **files_reveal;
     Shortcut shortcut[KEY_ACTIONS];
     GKeyFile *file;
 } Settings;
@@ -93,6 +93,7 @@ void model_seek(Model *, size_t, bool extend);
 void model_insert(Model *, const char *, size_t);
 void model_erase(Model *, size_t from, size_t to);
 void model_select(Model *, size_t);
+bool model_reveal(Model *, const Settings *);
 bool model_accept(Model *, const Settings *, Display *, bool raw, bool keep);
 bool model_back(Model *, const Settings *);
 bool model_dispatch(const Model *, const Settings *);

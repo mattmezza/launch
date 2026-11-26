@@ -224,7 +224,8 @@ def files_and_web(tmp, ini, bin_dir):
 
     opened = tmp / "opened-file"
     exported_url = tmp / "opened-web"
-    for name, target in (("xdg-open", opened), ("browser-stub", exported_url)):
+    revealed = tmp / "revealed-file"
+    for name, target in (("xdg-open", opened), ("browser-stub", exported_url), ("dirlane-stub", revealed)):
         command = bin_dir / name
         command.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{target}'\n")
         command.chmod(0o755)
@@ -232,6 +233,7 @@ def files_and_web(tmp, ini, bin_dir):
 border-glow=false
 [files]
 roots={root};
+reveal-command=dirlane-stub --reveal
 [browser personal]
 window-class=LaunchTestPersonal
 command=browser-stub personal
@@ -252,6 +254,12 @@ w=
         accept_file(app, "Return")
         check_exit(app, "")
     wait_file(opened, f"{report}\n")
+    with application(LAUNCH) as app:
+        window("Launch", app)
+        type_text("zqx rprt 2025")
+        accept_file(app, "alt+Return")
+        check_exit(app, "")
+    wait_file(revealed, f"--reveal\n{report}\n")
 
     with application(LAUNCH) as app:
         window("Launch", app)

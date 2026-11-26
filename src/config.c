@@ -160,6 +160,11 @@ static bool config_search(Settings *s)
         fprintf(stderr, "launch: invalid [files] cache-seconds or max-entries\n");
         return false;
     }
+    g_autofree char *reveal = g_key_file_get_string(s->file, "files", "reveal-command", NULL);
+    if (reveal && *reveal && !g_shell_parse_argv(reveal, NULL, &s->files_reveal, NULL)) {
+        fprintf(stderr, "launch: invalid [files] reveal-command\n");
+        return false;
+    }
     s->files_roots = g_key_file_get_string_list(s->file, "files", "roots", NULL, NULL);
     if (!s->files_roots) {
         s->files_roots = g_new0(char *, 4);
@@ -465,6 +470,7 @@ void settings_clear(Settings *s)
     g_free(s->font);
     g_free(s->mono);
     g_strfreev(s->files_roots);
+    g_strfreev(s->files_reveal);
     g_strfreev(s->files_exclude);
     for (int i = 0; i < COLORS; i++)
         g_free(s->color[i]);

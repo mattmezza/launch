@@ -686,6 +686,35 @@ bool model_back(Model *m, const Settings *s)
     return true;
 }
 
+bool model_reveal(Model *m, const Settings *s)
+{
+    Item *item = model_item(m, m->selected);
+    if (!s->files_reveal || !item ||
+        (item->action != ITEM_FILE && item->action != ITEM_FOLDER))
+        return true;
+    struct stat info;
+    g_clear_pointer(&m->error, g_free);
+    if (lstat(item->value, &info) < 0) {
+        m->error = g_strdup("This path is no longer available");
+        return true;
+    }
+    g_autofree char *program = g_find_program_in_path(s->files_reveal[0]);
+    if (!program) {
+        m->error = g_strdup_printf("File manager command is unavailable: %s", s->files_reveal[0]);
+        return true;
+    }
+    size_t argc = g_strv_length(s->files_reveal);
+    g_strfreev(item->argv);
+    item->argv = g_new0(char *, argc + 2);
+    item->argv[0] = g_steal_pointer(&program);
+    for (size_t i = 1; i < argc; i++)
+        item->argv[i] = g_strdup(s->files_reveal[i]);
+    item->argv[argc] = g_strdup(item->value);
+    m->chosen = item;
+    m->done = m->accepted = true;
+    return true;
+}
+
 bool model_accept(Model *m, const Settings *s, Display *display, bool raw, bool keep)
 {
     Item *item = model_item(m, m->selected);
